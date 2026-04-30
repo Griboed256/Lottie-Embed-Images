@@ -1,10 +1,12 @@
 name: Build and Release Lottie Embed Images
 
-# Скрипт запускается автоматически, когда ты создаешь тег, начинающийся с "v" (например, v1.2.0)
 on:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
