@@ -4,15 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Версия релиза (например: v1.2.0)'
+        description: 'Версия релиза (например: v1.2.6)'
         required: true
-        default: 'v1.2.0
+        default: 'v1.2.6'
 
 permissions:
   contents: write
 
 jobs:
-  # Этап 1: Сборка Windows
   build-windows:
     runs-on: windows-latest
     steps:
@@ -24,13 +23,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install Pillow tkinterdnd2 pyinstaller
       - run: pyinstaller --windowed --onefile --name Lottie_Embed_Images_Windows lottie_embed_images.py
-      # Сохраняем готовый exe во временное хранилище
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: dist/Lottie_Embed_Images_Windows.exe
 
-  # Этап 2: Сборка macOS
   build-macos:
     runs-on: macos-latest
     steps:
@@ -45,24 +42,19 @@ jobs:
           pyinstaller --windowed --name Lottie_Embed_Images lottie_embed_images.py
           cd dist
           zip -r ../Lottie_Embed_Images_macOS.zip Lottie_Embed_Images.app
-      # Сохраняем готовый zip во временное хранилище
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: Lottie_Embed_Images_macOS.zip
 
-  # Этап 3: Создание релиза (запустится ТОЛЬКО когда закончатся первые два)
   create-release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
-      # Скачиваем оба файла из временного хранилища в папку artifacts
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      
-      # Создаем релиз и заливаем туда сразу оба файла
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
