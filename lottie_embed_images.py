@@ -48,8 +48,8 @@ from typing import Optional, Callable, Dict, Tuple, List, Any
 # ГЛОБАЛЬНЫЕ НАСТРОЙКИ
 # ===========================================================================
 _RUNNING_AS_BUNDLE = getattr(sys, "frozen", False)
-APP_VERSION = "v.1.2.1"
-APP_BUILD = "v.1.2.1_1706_300426"
+APP_VERSION = "v.1.2.7"
+APP_BUILD = "v.1.2.7_2320_300426"
 QUALITY_WARNING_THRESHOLD = 30
 
 # ===========================================================================
