@@ -1,0 +1,65 @@
+name: Build and Release Lottie Embed Images
+
+# Скрипт запускается автоматически, когда ты создаешь тег, начинающийся с "v" (например, v1.2.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    
+    # Запускаем матрицу: параллельная сборка на Windows и macOS
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: Lottie_Embed_Images_Windows.exe
+          - os: macos-latest
+            artifact_name: Lottie_Embed_Images_macOS.zip
+
+    steps:
+      # 1. Скачиваем твой код из репозитория
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Устанавливаем Python 3.11 (самая стабильная версия для сборки)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. Устанавливаем библиотеки
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install Pillow tkinterdnd2 pyinstaller
+
+      # 4. Сборка для Windows (.exe)
+      # Важно: Замени 'lottie_embed_images.py' на точное имя твоего главного файла в репозитории!
+      - name: Build with PyInstaller (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          pyinstaller --windowed --onefile --name Lottie_Embed_Images_Windows lottie_embed_images.py
+
+      # 5. Сборка для macOS (.app)
+      # macOS требует архивации .app в .zip, иначе при скачивании слетят права на запуск
+      - name: Build with PyInstaller (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          pyinstaller --windowed --name Lottie_Embed_Images lottie_embed_images.py
+          cd dist
+          zip -r ../Lottie_Embed_Images_macOS.zip Lottie_Embed_Images.app
+
+      # 6. Загружаем готовые файлы прямо в твой релиз на GitHub!
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Lottie_Embed_Images_Windows.exe
+            Lottie_Embed_Images_macOS.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
