@@ -38,14 +38,28 @@ jobs:
       - run: |
           python -m pip install --upgrade pip
           pip install Pillow tkinterdnd2 pyinstaller
-      - run: |
-          pyinstaller --windowed --name Lottie_Embed_Images lottie_embed_images.py
-          cd dist
-          zip -r ../Lottie_Embed_Images_macOS.zip Lottie_Embed_Images.app
+      # Устанавливаем утилиту для создания DMG через Homebrew
+      - name: Install create-dmg
+        run: brew install create-dmg
+      - run: pyinstaller --windowed --name Lottie_Embed_Images lottie_embed_images.py
+      # Создаем DMG образ
+      - name: Create DMG
+        run: |
+          mkdir -p dist/dmg
+          create-dmg \
+            --volname "Lottie Embed Images" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Lottie_Embed_Images.app" 175 190 \
+            --hide-extension "Lottie_Embed_Images.app" \
+            --app-drop-link 425 190 \
+            "dist/Lottie_Embed_Images_macOS.dmg" \
+            "dist/Lottie_Embed_Images.app"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: Lottie_Embed_Images_macOS.zip
+          path: dist/Lottie_Embed_Images_macOS.dmg
 
   create-release:
     needs: [build-windows, build-macos]
@@ -62,4 +76,4 @@ jobs:
           name: Release ${{ github.event.inputs.version }}
           files: |
             artifacts/Lottie_Embed_Images_Windows.exe
-            artifacts/Lottie_Embed_Images_macOS.zip
+            artifacts/Lottie_Embed_Images_macOS.dmg
