@@ -52,4 +52,3 @@
 ## License
 - [GNU GPL 3.0](/LICENSE)
 - Copyright 2026 © Griboed256
-- Powered by free software: Python
