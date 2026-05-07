@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
       - run: |
           python -m pip install --upgrade pip
-          pip install Pillow tkinterdnd2 pyinstaller
+          pip install Pillow pillow-avif-plugin tkinterdnd2 pyinstaller
       - run: pyinstaller --windowed --onefile --name Lottie_Embed_Images_Windows lottie_embed_images.py
       - uses: actions/upload-artifact@v4
         with:
@@ -37,7 +37,7 @@ jobs:
           python-version: '3.11'
       - run: |
           python -m pip install --upgrade pip
-          pip install Pillow tkinterdnd2 pyinstaller
+          pip install Pillow pillow-avif-plugin tkinterdnd2 pyinstaller
       # Устанавливаем утилиту для создания DMG через Homebrew
       - name: Install create-dmg
         run: brew install create-dmg
