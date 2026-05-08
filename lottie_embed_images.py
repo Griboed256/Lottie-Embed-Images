@@ -49,8 +49,8 @@ from assets import get_lottie_js
 # ГЛОБАЛЬНЫЕ НАСТРОЙКИ
 # ===========================================================================
 _RUNNING_AS_BUNDLE = getattr(sys, "frozen", False)
-APP_VERSION = "v.1.2.9a"
-APP_BUILD = "v.1.2.9a_1155_080526"
+APP_VERSION = "v.1.2.9b"
+APP_BUILD = "v.1.2.9b_1434_080526"
 QUALITY_WARNING_THRESHOLD = 30
 
 # ===========================================================================
@@ -479,8 +479,8 @@ class PreviewServerManager:
                   window.addEventListener('load', function() {{
                     lottie.loadAnimation({{
                       container: document.getElementById('anim_{i}'),
-                      renderer: 'svg', loop: true, autoplay: true, path: '{req_path}'
-                      path: '{req_path}?v={cache_buster}'  /* <--- НОВОЕ: Обманываем кэш браузера */
+                      renderer: 'svg', loop: true, autoplay: true, 
+                      path: '{req_path}?v={cache_buster}'
                     }});
                   }});
                 </script>
