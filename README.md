@@ -21,7 +21,7 @@
 
 Программа распространяется в виде готового `.exe` файла, не требующего установки Python и дополнительных библиотек.
 
-1. Перейдите в раздел [Releases](https://github.com/Griboed256/Lottie-Embed-Images/releases).
+1. Перейдите в раздел [Releases](https://github.com/Griboed256/Lottie-Embed-Images/releases/latest).
 2. Скачайте последнюю версию
    * `Lottie_Embed_Images.exe` для пользователей Windows
    * `Lottie_Embed_Images.dmg` для пользователей MacOS.
@@ -47,9 +47,11 @@
 5. Только теперь экспортируйте эти композиции через плагин Bodymovin.
 
 - В плагине Bodymovin (раздел Settings) выставите следующие параметры:
-- `[Settings] → [Standard] — ✅ Включено`
-- `[Assets] → [Include in JSON] — ❌ ВЫКЛЮЧЕНО (Обязательно!)`
-- `[Assets] → [Copy to assets folder] — ✅ Включено`
+- Export Mode: Standard.
+- Glyphs: ON (это превратит шрифты в кривые, чтобы не тащить файлы шрифтов).
+- Enable compression — OFF
+- Assets: "Include in json" — OFF (пусть картинки лежат в папке, скрипт их сам заберет).
+- Advanced: "Pretty print" — OFF, "Skip default properties" — ON.
 - После рендера у вас должен появиться файл `.json` и папка `images/` с картинками. Именно их нужно подавать на вход нашему упаковщику.
  
 6. Загрузите готовые JSON-файлы и папки images/ в эту программу.
