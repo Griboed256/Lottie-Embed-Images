@@ -49,8 +49,8 @@ from assets import get_lottie_js
 # ГЛОБАЛЬНЫЕ НАСТРОЙКИ
 # ===========================================================================
 _RUNNING_AS_BUNDLE = getattr(sys, "frozen", False)
-APP_VERSION = "v.1.2.9с"
-APP_BUILD = "v.1.2.9с_1448_080526"
+APP_VERSION = "v.1.2.9f"
+APP_BUILD = "v.1.2.9f_1808_080526"
 QUALITY_WARNING_THRESHOLD = 30
 
 # ===========================================================================
@@ -156,35 +156,44 @@ class ImageUtils:
         return buf.getvalue()
 
     @staticmethod
-    def estimate_quality_for_limit(image_files: List[Path], limit_bytes: int, lossless: bool = False, sample_count: int = 10) -> Tuple[int, bool]:
-        if lossless or not image_files:
+    def estimate_quality_for_limit(image_files: List[Path], limit_bytes: int, img_format: str = "webp", sample_count: int = 10) -> Tuple[int, bool]:
+        if not image_files:
             return 85, False
 
         step = max(1, len(image_files) // sample_count)
         samples = image_files[::step][:sample_count]
 
-        def avg_webp_size(q: int) -> int:
+        def avg_size(q: int) -> int:
             total = 0
             for f in samples:
                 raw = f.read_bytes()
-                converted = ImageUtils.png_bytes_to_webp(raw, quality=q)
+                if img_format == "avif":
+                    converted = ImageUtils.png_bytes_to_avif(raw, quality=q)
+                else:
+                    converted = ImageUtils.png_bytes_to_webp(raw, quality=q)
                 total += len(converted)
             return int(total / len(samples) * len(image_files))
 
-        lo, hi, best_q = 1, 95, 85
+        lo, hi = 1, 95
+        best_q = 1 # <--- ИСПРАВЛЕНИЕ: По умолчанию берем 1 (максимальное мыло)
+        found_any = False
+        
         for _ in range(8):
             mid = (lo + hi) // 2
-            est = avg_webp_size(mid)
+            est = avg_size(mid)
             json_est = int(est * (4 / 3))
             if json_est <= limit_bytes:
                 best_q = mid
+                found_any = True
                 lo = mid + 1
             else:
                 hi = mid - 1
             if lo > hi:
                 break
 
-        return best_q, best_q < QUALITY_WARNING_THRESHOLD
+        # Предупреждение, если качество упало ниже 30 ИЛИ если даже 1 не влезает в лимит
+        warn = (best_q < QUALITY_WARNING_THRESHOLD) or not found_any
+        return best_q, warn
 
 
 class LottieProcessor:
@@ -242,11 +251,12 @@ class LottieProcessor:
             if total == 0: return {"path": output_json, "embedded": 0, "skipped": 0, "size_mb": 0}
 
             actual_quality = quality
-            # Автолимит пока оставляем только для WebP (т.к. AVIF считается дольше)
-            if img_format == "webp" and size_limit_mb > 0:
+            
+            # Автолимит теперь работает и для WebP, и для AVIF
+            if size_limit_mb > 0 and img_format in ("webp", "avif"):
                 limit_bytes = int(size_limit_mb * 1024 * 1024)
-                log_fn(f"Подбираю качество под лимит {size_limit_mb} MB...")
-                actual_quality, warn = ImageUtils.estimate_quality_for_limit([item[2] for item in work_items], limit_bytes, False)
+                log_fn(f"Подбираю качество под лимит {size_limit_mb} MB для формата {img_format.upper()}...")
+                actual_quality, warn = ImageUtils.estimate_quality_for_limit([item[2] for item in work_items], limit_bytes, img_format=img_format)
                 if warn: log_fn(f"  ⚠️ ВНИМАНИЕ: качество {actual_quality} ниже нормы.")
 
             log_fn(f"Режим: {img_format.upper()} | Изображений: {total}\n")
@@ -1192,13 +1202,20 @@ class LottieEmbedApp(TkBase):
         self.c3 = self._card(parent)
         ttk.Label(self.c3, text="⚙️  Формат сжатия (Глобально)", style="Card.TLabel").pack(anchor="w", pady=(0, 6))
         
+        # --- НОВОЕ: Создаем словарь для надежного управления кнопками ---
+        self.format_radios = {} 
         for val, txt in [
             ("webp", "WebP (рекомендуется) — лучший баланс"), 
             ("avif", "AVIF (Next-Gen) — макс. сжатие (медленнее)"),
             ("png8", "PNG (Сжатый / PNG-8) — оптимизированный PNG"),
             ("lossless", "WebP Lossless — без потерь")
         ]:
-            ttk.Radiobutton(self.c3, text=txt, variable=self.var_format, value=val, command=self._on_format_change).pack(anchor="w", pady=1)
+            rb = ttk.Radiobutton(self.c3, text=txt, variable=self.var_format, value=val, command=self._on_format_change)
+            rb.pack(anchor="w", pady=1)
+            self.format_radios[val] = rb # Сохраняем саму кнопку по ключу формата
+        # -----------------------------------------------------------------
+        
+        self.format_hint_label = tk.Label(self.c3, text="", bg=self.BG_CARD, fg=self.SUBTEXT, font=("Segoe UI", 9), wraplength=360, justify="left")
         
         self.format_hint_label = tk.Label(self.c3, text="", bg=self.BG_CARD, fg=self.SUBTEXT, font=("Segoe UI", 9), wraplength=360, justify="left")
         self.format_hint_label.pack(anchor="w", pady=(6, 0))
@@ -1223,30 +1240,29 @@ class LottieEmbedApp(TkBase):
         )
         self.quality_slider.pack(fill="x", pady=(4, 0))
 
-        c_limit = self._card(parent)
-        limit_hdr = ttk.Frame(c_limit, style="Card.TFrame")
+        # --- БЛОК ЛИМИТА (теперь self.limit_frame) ---
+        self.limit_frame = self._card(parent) 
+        limit_hdr = ttk.Frame(self.limit_frame, style="Card.TFrame")
         limit_hdr.pack(fill="x")
         ttk.Checkbutton(limit_hdr, text="📏  Ограничить размер JSON", variable=self.var_use_limit, command=self._on_limit_toggle).pack(side="left")
         self.lbl_limit_val = ttk.Label(limit_hdr, text=f"{self.var_limit_mb.get():.1f} MB", style="Card.TLabel")
         self.lbl_limit_val.pack(side="right")
-        ttk.Label(c_limit, text="Скрипт подберёт качество автоматически", style="Sub.TLabel").pack(anchor="w", pady=(2,4))
+        ttk.Label(self.limit_frame, text="Скрипт подберёт качество автоматически", style="Sub.TLabel").pack(anchor="w", pady=(2,4))
         
-        # Изначально делаем ползунок лимита серым (до загрузки файла)
         self.limit_slider_color = self.BORDER 
-        self.limit_slider = self._build_custom_slider(c_limit, self.var_limit_mb, command=self._on_limit_change, min_val=0.5, max_val=10.0, color_func=lambda val: getattr(self, 'limit_slider_color', "#93D22F"), is_float=True)
+        self.limit_slider = self._build_custom_slider(self.limit_frame, self.var_limit_mb, command=self._on_limit_change, min_val=0.5, max_val=10.0, color_func=lambda val: getattr(self, 'limit_slider_color', "#93D22F"), is_float=True)
         self.limit_slider.disabled = not self.var_use_limit.get()
         self.limit_slider.pack(fill="x", pady=(6,0))
 
-        c_est = self._card(parent, pady=(0, 6))
-        est_row = ttk.Frame(c_est, style="Card.TFrame")
+        # --- БЛОК ОЦЕНКИ (теперь self.est_frame) ---
+        self.est_frame = self._card(parent, pady=(0, 6))
+        est_row = ttk.Frame(self.est_frame, style="Card.TFrame")
         est_row.pack(fill="x")
         ttk.Label(est_row, text="📊  Оценка текущего файла:", style="Card.TLabel").pack(side="left")
         tk.Label(est_row, textvariable=self.var_est_size, bg=self.BG_CARD, fg=self.YELLOW, font=("Segoe UI", 10)).pack(side="left", padx=(6,0))
         
-        # --- Наша новая динамическая подсказка ---
-        tk.Label(c_est, textvariable=self.var_est_hint, bg=self.BG_CARD, fg=self.SUBTEXT, font=("Segoe UI", 9)).pack(anchor="w", pady=(2,0))
-        
-        tk.Label(c_est, textvariable=self.var_auto_quality, bg=self.BG_CARD, fg=self.YELLOW, font=("Segoe UI", 9)).pack(anchor="w", pady=(2,0))
+        tk.Label(self.est_frame, textvariable=self.var_est_hint, bg=self.BG_CARD, fg=self.SUBTEXT, font=("Segoe UI", 9)).pack(anchor="w", pady=(2,0))
+        tk.Label(self.est_frame, textvariable=self.var_auto_quality, bg=self.BG_CARD, fg=self.YELLOW, font=("Segoe UI", 9)).pack(anchor="w", pady=(2,0))
 
         c4 = self._card(parent)
         ttk.Label(c4, text="💾  Итоговый JSON", style="Card.TLabel").pack(anchor="w")
@@ -1356,9 +1372,9 @@ class LottieEmbedApp(TkBase):
             "• AVIF — современный формат, максимальное сжатие, чуть дольше рендер\n"
             "• WebP Lossless — без потерь, но тяжелее\n"
             "• PNG-8 — оптимизированный PNG в 256 цветов\n\n"
-            "3. (Опционально) включи «Ограничить размер JSON»\nи укажи лимит — качество подберётся автоматически.\n\n"
+            "3. (Опционально) включи «Ограничить размер JSON»\n и укажи лимит — качество подберётся автоматически.\n\n"
             "4. Нажми ▶ Запустить.\nВнизу отображается прогресс и оставшееся время.\n\n"
-            "5. После завершения можно открыть предпросмотр:\nlocalhost:8000/test.html\nСервер закроется автоматически при выходе.\n\n" 
+            "5. После завершения можно открыть предпросмотр:\n localhost:8000/test.html\nСервер закроется автоматически при выходе.\n\n" 
             "ВОЗМОЖНА ПАКЕТНАЯ ОБРАБОТКА НЕСКОЛЬКИХ ФАЙЛОВ\n\n" 
             "1. Выбери JSON-файл (или перетащи его в окно через Drag&Drop (можно перетачкивать несколько папок с json и image сразу)).\n\n"
             "2. Настрой сжатие слева (настройки будут общими для всей очереди).\n\n"
@@ -1991,22 +2007,91 @@ class LottieEmbedApp(TkBase):
             self.btn_run.config(text="▶  Запустить")
 
     def _on_format_change(self):
-        fmt = self.var_format.get()
+        # Обязательно str(), чтобы избежать ошибок Tcl объектов
+        fmt = str(self.var_format.get())
+        is_limit_on = self.var_use_limit.get()
         
-        # Умные пресеты качества при переключении
-        if fmt == "avif":
-            self.var_quality.set(60)
-            self.lbl_qval.config(text="60")
-        elif fmt == "webp":
-            # Возвращаем стандарт индустрии для WebP
-            self.var_quality.set(85)
-            self.lbl_qval.config(text="85")
+        # 1. Умные пресеты качества (только если лимит выключен)
+        if not is_limit_on:
+            if fmt == "avif":
+                self.var_quality.set(60)
+                self.lbl_qval.config(text="60")
+            elif fmt == "webp":
+                self.var_quality.set(85)
+                self.lbl_qval.config(text="85")
 
-        # Показываем/скрываем ползунок качества
+        # 2. Управляем видимостью блока КАЧЕСТВА (WebP/AVIF)
         if fmt in ("webp", "avif"):
             self.quality_frame.pack(fill="x", pady=(8, 0))
         else:
             self.quality_frame.pack_forget()
+
+        # 3. Управляем видимостью блока ОГРАНИЧЕНИЯ РАЗМЕРА
+        if hasattr(self, 'limit_frame') and hasattr(self, 'est_frame'):
+            if fmt in ("webp", "avif"):
+                # Возвращаем блок лимита строго ПЕРЕД блоком оценки
+                self.limit_frame.pack(fill="x", pady=(0, 8), before=self.est_frame)
+            else:
+                # Если переключились на PNG/Lossless - выключаем и прячем лимит
+                if is_limit_on:
+                    self.var_use_limit.set(False)
+                    self._on_limit_toggle()
+                self.limit_frame.pack_forget()
+            
+        # 4. Обновляем текст подсказки
+        is_limit_on = self.var_use_limit.get()
+        if is_limit_on and fmt in ("webp", "avif"):
+            self.format_hint_label.config(text=f"Ручное качество заблокировано (автоподбор {fmt.upper()} под лимит).")
+        else:
+            self.format_hint_label.config(text="")
+            
+        self._update_estimate()
+
+
+    def _on_limit_toggle(self):
+        is_limit_on = self.var_use_limit.get()
+        
+        # 1. Включаем/выключаем ползунок лимита
+        if hasattr(self, 'limit_slider'):
+            self.limit_slider.disabled = not is_limit_on
+            self.limit_slider.force_redraw()
+            
+        # 2. Отключаем ползунок ручного качества, если включен автолимит
+        if hasattr(self, 'quality_slider'):
+            self.quality_slider.disabled = is_limit_on
+            self.quality_slider.force_redraw()
+            
+        # 3. Мягкое переключение формата:
+        # Если включили лимит, а выбран Lossless или PNG8 -> принудительно ставим WebP.
+        # Если выбран WebP или AVIF -> оставляем их как есть!
+        current_fmt = self.var_format.get()
+        if is_limit_on and current_fmt not in ("webp", "avif"):
+            self.var_format.set("webp")
+            current_fmt = "webp"
+            
+        # 4. Блокируем ТОЛЬКО Lossless и PNG8. WebP и AVIF остаются активными!
+        for child in self.c3.winfo_children():
+            if isinstance(child, ttk.Radiobutton):
+                # Обязательно оборачиваем в str(), иначе Tkinter может не распознать значение!
+                val = str(child.cget("value")) 
+                if is_limit_on:
+                    if val in ("webp", "avif"):
+                        child.configure(state="normal")
+                    else:
+                        child.configure(state="disabled")
+                else:
+                    child.configure(state="normal")
+
+        self.lbl_limit_val.config(state="normal" if is_limit_on else "disabled")
+        # Вместо дублирования кода просто вызываем обновление форматов
+        self._on_format_change()
+        
+        if is_on:
+            self.quality_frame.pack(fill="x", pady=(8, 0))
+            self.format_hint_label.config(text=f"Ручное качество заблокировано (автоподбор {self.var_format.get().upper()} под лимит).")
+        else:
+            self.format_hint_label.config(text="")
+            self._on_format_change()
             
         self._update_estimate()
 
@@ -2016,26 +2101,39 @@ class LottieEmbedApp(TkBase):
             self._update_estimate()
 
     def _on_limit_toggle(self):
-        is_on = self.var_use_limit.get()
+        is_limit_on = self.var_use_limit.get()
         
         # 1. Включаем/выключаем ползунок лимита
         if hasattr(self, 'limit_slider'):
-            self.limit_slider.disabled = not is_on
+            self.limit_slider.disabled = not is_limit_on
             self.limit_slider.force_redraw()
             
-        # --- НОВОЕ: Отключаем ползунок качества, если включен автолимит ---
+        # 2. Отключаем ползунок ручного качества, если включен автолимит
         if hasattr(self, 'quality_slider'):
-            self.quality_slider.disabled = is_on
+            self.quality_slider.disabled = is_limit_on
             self.quality_slider.force_redraw()
-        # -----------------------------------------------------------------
             
-        # 2. Блокируем радиокнопки форматов
-        radio_state = "disabled" if is_on else "normal"
-        for child in self.c3.winfo_children():
-            if isinstance(child, ttk.Radiobutton):
-                child.configure(state=radio_state)
+        # 3. Мягкое переключение формата:
+        current_fmt = self.var_format.get()
+        if is_limit_on and current_fmt not in ("webp", "avif"):
+            self.var_format.set("webp")
+            current_fmt = "webp"
+            
+        # 4. ЖЕЛЕЗОБЕТОННАЯ БЛОКИРОВКА через наш словарь!
+        if hasattr(self, 'format_radios'):
+            for val, rb in self.format_radios.items():
+                if is_limit_on:
+                    if val in ("webp", "avif"):
+                        rb.configure(state="normal")
+                    else:
+                        rb.configure(state="disabled")
+                else:
+                    rb.configure(state="normal")
 
-        self.lbl_limit_val.config(state="normal" if is_on else "disabled")
+        self.lbl_limit_val.config(state="normal" if is_limit_on else "disabled")
+        
+        # Вместо дублирования кода просто вызываем обновление форматов
+        self._on_format_change()
         
         if is_on:
             self.var_format.set("webp")
@@ -2063,8 +2161,10 @@ class LottieEmbedApp(TkBase):
     def _do_update_estimate_task(self):
         """Реальный расчет веса и создание превью качества"""
         img_dir_str = self.var_images.get().strip()
-        fmt, quality = self.var_format.get(), self.var_quality.get()
-        limit = self.var_limit_mb.get() if self.var_use_limit.get() else 0
+        fmt = self.var_format.get()
+        quality = self.var_quality.get()
+        use_limit = self.var_use_limit.get()
+        limit_mb = self.var_limit_mb.get()
         
         if not img_dir_str or not Path(img_dir_str).is_dir():
             return
@@ -2081,34 +2181,58 @@ class LottieEmbedApp(TkBase):
         def _task():
             try:
                 from PIL import Image, ImageTk
+                
+                # --- ЛОГИКА АВТОЛИМИТА (WEBP и AVIF) ---
+                actual_quality = quality
+                
+                if use_limit and fmt in ("webp", "avif"):
+                    limit_bytes = int(limit_mb * 1024 * 1024)
+                    # Высчитываем идеальное качество с учетом формата
+                    actual_quality, warn = ImageUtils.estimate_quality_for_limit(pngs, limit_bytes, img_format=fmt)
+                    
+                    if gen == self._est_generation:
+                        # ИСПРАВЛЕНИЕ: Выводим разные предупреждения
+                        if actual_quality == 1 and warn:
+                            warn_text = " (⚠️ Лимит недостижим!)"
+                        elif warn:
+                            warn_text = " (⚠️ Слишком низко!)"
+                        else:
+                            warn_text = ""
+                            
+                        self.after(0, lambda: self.var_auto_quality.set(f"💡 Подобранное качество {fmt.upper()}: {actual_quality}{warn_text}"))
+                        self.after(0, lambda: self._update_limit_slider_color(actual_quality))
+                else:
+                    if gen == self._est_generation:
+                        self.after(0, lambda: self.var_auto_quality.set(""))
+                # ----------------------------------------
+
                 # Берем первый кадр для теста качества
                 test_img_path = pngs[0]
                 raw_bytes = test_img_path.read_bytes()
                 
                 # Выбираем функцию сжатия
                 if fmt == "avif":
-                    conv_func = lambda b: ImageUtils.png_bytes_to_avif(b, quality=quality)
+                    conv_func = lambda b: ImageUtils.png_bytes_to_avif(b, quality=actual_quality)
                 elif fmt == "png8":
                     conv_func = lambda b: ImageUtils.png_bytes_to_png8(b)
                 elif fmt == "lossless":
                     conv_func = lambda b: ImageUtils.png_bytes_to_webp(b, quality=100, lossless=True)
                 else: # webp
-                    conv_func = lambda b: ImageUtils.png_bytes_to_webp(b, quality=quality)
+                    conv_func = lambda b: ImageUtils.png_bytes_to_webp(b, quality=actual_quality)
 
                 # 1. Генерируем тестовую картинку (сжатую)
                 compressed_bytes = conv_func(raw_bytes)
                 test_img = Image.open(io.BytesIO(compressed_bytes))
-                test_img.thumbnail((350, 350)) # Размер чуть больше обычного превью
+                test_img.thumbnail((350, 350))
                 tk_img = ImageTk.PhotoImage(test_img)
 
-                # 2. Считаем средний вес (на 8 семплах)
+                # 2. Считаем средний вес
                 samples = pngs[::max(1, len(pngs) // 8)][:8]
                 total_final = sum(len(conv_func(p.read_bytes())) for p in samples)
                 est_mb = (total_final / len(samples)) * len(pngs) * (4 / 3) / (1<<20)
 
                 if gen == self._est_generation:
                     self.after(0, lambda: self.var_est_size.set(f"~ {est_mb:.2f} MB"))
-                    # Сохраняем ссылку на картинку, чтобы Python её не удалил (garbage collection)
                     self._test_photo_ref = tk_img 
                     self.after(0, lambda: self.lbl_quality_compare.config(image=tk_img, text=""))
                     
