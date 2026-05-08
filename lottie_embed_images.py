@@ -49,8 +49,8 @@ from assets import get_lottie_js
 # ГЛОБАЛЬНЫЕ НАСТРОЙКИ
 # ===========================================================================
 _RUNNING_AS_BUNDLE = getattr(sys, "frozen", False)
-APP_VERSION = "v.1.2.9b"
-APP_BUILD = "v.1.2.9b_1434_080526"
+APP_VERSION = "v.1.2.9с"
+APP_BUILD = "v.1.2.9с_1448_080526"
 QUALITY_WARNING_THRESHOLD = 30
 
 # ===========================================================================
